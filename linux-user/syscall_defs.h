@@ -2754,4 +2754,113 @@ struct target_sched_param {
     abi_int sched_priority;
 };
 
+/* Android: Binder syscall. Note that it uses 64-bit Binder IPC */
+
+/* types */
+#ifdef BINDER_IPC_32BIT
+typedef abi_uint target_binder_size_t;
+typedef abi_uint target_binder_uintptr_t;
+#else
+typedef abi_ullong target_binder_size_t;
+typedef abi_ullong target_binder_uintptr_t;
+#endif
+
+/* structures */
+struct target_binder_object_header {
+  abi_uint type;
+};
+struct target_flat_binder_object {
+  struct target_binder_object_header hdr;
+  abi_uint flags;
+  union {
+    target_binder_uintptr_t binder;
+    abi_uint handle;
+  };
+  target_binder_uintptr_t cookie;
+};
+struct target_binder_fd_object {
+  struct target_binder_object_header hdr;
+  abi_uint pad_flags;
+  union {
+    target_binder_uintptr_t pad_binder;
+    abi_uint fd;
+  };
+  target_binder_uintptr_t cookie;
+};
+struct target_binder_buffer_object {
+  struct target_binder_object_header hdr;
+  abi_uint flags;
+  target_binder_uintptr_t buffer;
+  target_binder_size_t length;
+  target_binder_size_t parent;
+  target_binder_size_t parent_offset;
+};
+
+struct target_binder_fd_array_object {
+  struct target_binder_object_header hdr;
+  abi_uint pad;
+  target_binder_size_t num_fds;
+  target_binder_size_t parent;
+  target_binder_size_t parent_offset;
+};
+struct target_binder_write_read {
+    target_binder_size_t write_size;
+    target_binder_size_t write_consumed;
+    target_binder_uintptr_t write_buffer;
+    target_binder_size_t read_size;
+    target_binder_size_t read_consumed;
+    target_binder_uintptr_t read_buffer;
+};
+struct target_binder_version {
+  abi_int protocol_version;
+};
+
+struct target_binder_node_debug_info {
+  target_binder_uintptr_t ptr;
+  target_binder_uintptr_t cookie;
+  abi_uint has_strong_ref;
+  abi_uint has_weak_ref;
+};
+struct target_binder_node_info_for_ref {
+  abi_uint handle;
+  abi_uint strong_count;
+  abi_uint weak_count;
+  abi_uint reserved1;
+  abi_uint reserved2;
+  abi_uint reserved3;
+};
+struct target_binder_freeze_info {
+  abi_uint pid;
+  abi_uint enable;
+  abi_uint timeout_ms;
+};
+struct target_binder_frozen_status_info {
+  abi_uint pid;
+  abi_uint sync_recv;
+  abi_uint async_recv;
+};
+struct target_binder_extended_error {
+  abi_uint id;
+  abi_uint command;
+  abi_int param;
+};
+
+/* target IOCTL */
+#define TARGET_BINDER_WRITE_READ TARGET_IOWR('b', 1, struct target_binder_write_read)
+#define TARGET_BINDER_SET_IDLE_TIMEOUT TARGET_IOW('b', 3, abi_llong)
+#define TARGET_BINDER_SET_MAX_THREADS TARGET_IOW('b', 5, abi_uint)
+#define TARGET_BINDER_SET_IDLE_PRIORITY TARGET_IOW('b', 6, abi_int)
+#define TARGET_BINDER_SET_CONTEXT_MGR TARGET_IOW('b', 7, abi_int)
+#define TARGET_BINDER_THREAD_EXIT TARGET_IOW('b', 8, abi_int)
+#define TARGET_BINDER_VERSION TARGET_IOWR('b', 9, struct target_binder_version)
+#define TARGET_BINDER_GET_NODE_DEBUG_INFO TARGET_IOWR('b', 11, struct target_binder_node_debug_info)
+#define TARGET_BINDER_GET_NODE_INFO_FOR_REF TARGET_IOWR('b', 12, struct target_binder_node_info_for_ref)
+#define TARGET_BINDER_SET_CONTEXT_MGR_EXT TARGET_IOW('b', 13, struct target_flat_binder_object)
+#define TARGET_BINDER_FREEZE TARGET_IOW('b', 14, struct target_binder_freeze_info)
+#define TARGET_BINDER_GET_FROZEN_INFO TARGET_IOWR('b', 15, struct target_binder_frozen_status_info)
+#define TARGET_BINDER_ENABLE_ONEWAY_SPAM_DETECTION TARGET_IOW('b', 16, abi_uint)
+#define TARGET_BINDER_GET_EXTENDED_ERROR TARGET_IOWR('b', 17, struct target_binder_extended_error)
+
+/* Binder Second part: Most of them are BC or BR command defines, add if needed */
+
 #endif

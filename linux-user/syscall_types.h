@@ -642,3 +642,80 @@ STRUCT(usbdevfs_disconnect_claim,
         TYPE_INT, /* flags */
         MK_ARRAY(TYPE_CHAR, USBDEVFS_MAXDRIVERNAME + 1)) /* driver */
 #endif /* CONFIG_USBFS */
+
+/*
+ * Android binder struct NOTE: only 64-bit ipc supported. binder_uintptr_t is u64
+ * A problem is binder kernel need to read u64 uintptr_t then covert it,
+ * this avoid us to use TYPE_PTRVOID, so need custom ioctl.
+ */
+STRUCT(binder_object_header,
+        TYPE_INT) /* type */
+
+STRUCT(flat_binder_object,
+        MK_STRUCT(STRUCT_binder_object_header), /* hdr */
+        TYPE_INT, /* flags */
+        TYPE_ULONGLONG, /* binder (in union) ptr */
+        TYPE_INT, /* handle (in union) */
+        TYPE_ULONGLONG) /* cookie ptr */
+
+STRUCT(binder_fd_object,
+        MK_STRUCT(STRUCT_binder_object_header), /* hdr */
+        TYPE_INT, /* pad_flags */
+        TYPE_ULONGLONG, /* pad_binder (in union) ptr*/
+        TYPE_INT, /* fd (in union) */
+        TYPE_ULONGLONG) /* cookie ptr */
+
+STRUCT(binder_buffer_object,
+        MK_STRUCT(STRUCT_binder_object_header), /* hdr */
+        TYPE_INT, /* flags */
+        TYPE_ULONGLONG, /* buffer ptr */
+        TYPE_ULONGLONG, /* length */
+        TYPE_ULONGLONG, /* parent */
+        TYPE_ULONGLONG) /* parent_offset */
+
+STRUCT(binder_fd_array_object,
+        MK_STRUCT(STRUCT_binder_object_header), /* hdr */
+        TYPE_INT, /* pad */
+        TYPE_ULONGLONG, /* num_fds */
+        TYPE_ULONGLONG, /* parent */
+        TYPE_ULONGLONG) /* parent_offset */
+
+STRUCT(binder_write_read,
+        TYPE_ULONGLONG, /* write_size */
+        TYPE_ULONGLONG, /* write_consumed */
+        TYPE_ULONGLONG, /* write_buffer ptr */
+        TYPE_ULONGLONG, /* read_size */
+        TYPE_ULONGLONG, /* read_consumed */
+        TYPE_ULONGLONG) /* read_buffer ptr */
+
+STRUCT(binder_version,
+        TYPE_INT) /* protocol_version */
+
+STRUCT(binder_node_debug_info,
+        TYPE_ULONGLONG, /* ptr ptr */
+        TYPE_ULONGLONG, /* cookie ptr */
+        TYPE_INT, /* has_strong_ref */
+        TYPE_INT) /* has_weak_ref */
+
+STRUCT(binder_node_info_for_ref,
+        TYPE_INT, /* handle */
+        TYPE_INT, /* strong_count */
+        TYPE_INT, /* weak_count */
+        TYPE_INT, /* reserved1 */
+        TYPE_INT, /* reserved2 */
+        TYPE_INT) /* reserved3 */
+
+STRUCT(binder_freeze_info,
+        TYPE_INT, /* pid */
+        TYPE_INT, /* enable */
+        TYPE_INT) /* timeout_ms */
+
+STRUCT(binder_frozen_status_info,
+        TYPE_INT, /* pid */
+        TYPE_INT, /* sync_recv */
+        TYPE_INT) /* async_recv */
+
+STRUCT(binder_extended_error,
+        TYPE_INT, /* id */
+        TYPE_INT, /* command */
+        TYPE_INT) /* param */

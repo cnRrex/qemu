@@ -149,6 +149,9 @@
 #define CLONE_IO                0x80000000      /* Clone io context */
 #endif
 
+/* Linux header of Android Binder */
+#include <linux/android/binder.h>
+
 /* We can't directly call the host clone syscall, because this will
  * badly confuse libc (breaking mutexes, for example). So we must
  * divide clone flags into:
@@ -5551,6 +5554,393 @@ static abi_long do_ioctl_TUNSETTXFILTER(const IOCTLEntry *ie, uint8_t *buf_temp,
 
     return get_errno(safe_ioctl(fd, ie->host_cmd, filter));
 }
+
+#ifdef BINDER_DEBUG
+/* helper function for binder debug: used to dump binder buffer */
+static void hexdump_custom(void *pSrc, int len)
+{
+    unsigned char *line;
+    int i;
+    int thisline;
+    int offset;
+
+    line = (unsigned char *)pSrc;
+    offset = 0;
+
+    while (offset < len){
+        printf("%04x ", offset);
+        thisline = len - offset;
+
+        if (thisline > 16){
+            thisline = 16;
+        }
+
+        for (i = 0; i < thisline; i++){
+            printf("%02x ", line[i]);
+        }
+
+        for (; i < 16; i++){
+            printf("   ");
+        }
+
+        for (i = 0; i < thisline; i++){
+            printf("%c", (line[i] >= 0x20 && line[i] < 0x7f) ? line[i] : '.');
+        }
+
+        printf("\n");
+        offset += thisline;
+        line += thisline;
+    }
+}
+#endif /* BINDER_DEBUG */
+
+/* Android Binder IOCTL */
+
+/* helper function: lock_user but dont copy, return g2h addr */
+static void *lock_user_nocopy_internal(int type, abi_ulong guest_addr, ssize_t len)
+{
+    guest_addr = cpu_untagged_addr(thread_cpu, guest_addr);
+    if(!access_ok_untagged(type, guest_addr, len)){
+        return NULL;
+    }
+    return g2h_untagged(guest_addr);
+}
+
+/*
+ * arm64 workaround: backup memtag and restore the tag address from untagged one
+ * All addresses are handle as guest addr
+ * cpu_addr_get_tag: get addr tag for backup
+ * cpu_tag_addr: retag guest address
+ *
+ * new: dont workaround , warn it
+ */
+#ifdef TARGET_AARCH64
+#ifdef TARGET_TAGGED_ADDRESSES
+static abi_ptr cpu_addr_get_tag(abi_ptr x)
+{
+//#ifdef TARGET_AARCH64
+//#ifdef TARGET_TAGGED_ADDRESSES
+    /* reserve the 56 to 63 bits (start from 0) */
+    return extract64(x, 56, 8);
+//#endif /* TARGET_TAGGED_ADDRESSES */
+//#endif /* TARGET_AARCH64 */
+#ifndef TARGET_TAGGED_ADDRESSES
+    return 0;
+#endif
+}
+#endif /* TARGET_TAGGED_ADDRESSES */
+#endif /* TARGET_AARCH64 */
+
+/* Warning the tagged address and we dont support it*/
+static void *g2h_with_tag_check(abi_ptr x)
+{
+#ifdef TARGET_AARCH64
+#ifdef TARGET_TAGGED_ADDRESSES
+    abi_ptr x_tag = cpu_addr_get_tag(x);
+    if(x_tag){
+        qemu_log_mask(LOG_UNIMP, "Binder syscall: Unsupported arm64 mte tagged address detected: 0x%lX\n, set env MEMTAG_OPTIONS=off for qemu to disable it in android!", x_tag);
+    }
+#endif /* TARGET_TAGGED_ADDRESSES */
+#endif /* TARGET_AARCH64 */
+    return g2h(thread_cpu, x);
+}
+
+/* v1 implement, test in random pass */
+static abi_long do_ioctl_binder_write_read(const IOCTLEntry *ie, uint8_t *buf_temp,
+                                           int fd, int cmd, abi_long arg)
+{
+    void *argptr;
+    int target_size;
+    const argtype *arg_type = ie->arg_type;
+    struct binder_write_read host_binder;
+    binder_uintptr_t guest_write_buffer, guest_read_buffer;
+    void *target_write_buffer, *target_read_buffer;
+    void *w_ptr, *w_end, *r_ptr, *r_end;
+    uint32_t *w_cmd, *r_cmd;
+    abi_long ret;
+    /* addr in buffer has no backup, need to handle their tag
+     * But we only need to handle read buffer's data, and that has no original tag.
+     * And currently we dont know how to restore tag and need to warn it
+     * Once check it has tag, then we dont restore it.
+     */
+
+    arg_type++;
+    target_size = thunk_type_size(arg_type, THUNK_TARGET);
+
+    /* get guest struct data (a copy) */
+    argptr = lock_user(VERIFY_READ, arg, target_size, 1);
+    if (!argptr) {
+        return -TARGET_EFAULT;
+    }
+    thunk_convert(&host_binder, argptr, arg_type, THUNK_HOST);
+    unlock_user(argptr, arg, 0);
+
+#ifdef BINDER_DEBUG
+    printf("get host_binder: w_size=%llu, w_con=%llu, w_buffer=%llx, r_size=%llu, r_con=%llu, r_buffer=%llx\n",
+           host_binder.write_size,
+           host_binder.write_consumed,
+           host_binder.write_buffer,
+           host_binder.read_size,
+           host_binder.read_consumed,
+           host_binder.read_buffer);
+#endif
+    /*
+     * convert buffer's guest pointer to host pointer and update.
+     * need to make the buffer accessible, dont copy data as it is too slow
+     */
+    guest_write_buffer = host_binder.write_buffer;
+    guest_read_buffer = host_binder.read_buffer;
+
+    /*
+     * convert manually and get the host addr.
+     */
+    target_write_buffer = lock_user_nocopy_internal(VERIFY_WRITE, guest_write_buffer, host_binder.write_size);
+    target_read_buffer = lock_user_nocopy_internal(VERIFY_WRITE, guest_read_buffer, host_binder.read_size);
+    host_binder.write_buffer = (binder_uintptr_t)target_write_buffer;
+    host_binder.read_buffer = (binder_uintptr_t)target_read_buffer;
+
+#ifdef BINDER_DEBUG
+    printf("converted host_binder: w_buffer=%llx, r_buffer=%llx\ndump_w_buffer:\n",
+           host_binder.write_buffer,
+           host_binder.read_buffer);
+    hexdump_custom(target_write_buffer, host_binder.write_size);
+    printf("dump_r_buffer:\n");
+    hexdump_custom(target_read_buffer, host_binder.read_size);
+#endif
+
+    /*
+     * Convert the addr in write_buffer (g2h)
+     * FA template from kernel binder_thread_write
+     * NOTE: Conversion of ptr and cookie will cause problem
+     *       Need a better test to ensure binder driver work
+     */
+    w_ptr = target_write_buffer;/* should scan all */
+    w_end = target_write_buffer + host_binder.write_size;
+    while(w_ptr < w_end ){
+        w_cmd = (uint32_t *)w_ptr;
+        w_ptr += sizeof(uint32_t);
+        /* the struct/type convert should follow original method */
+        switch(*w_cmd){
+            case BC_INCREFS:
+            case BC_ACQUIRE:
+            case BC_RELEASE:
+            case BC_DECREFS:{
+                w_ptr += sizeof(uint32_t);
+                break;
+            }
+            case BC_INCREFS_DONE:
+            case BC_ACQUIRE_DONE:{
+                /* skip ptr */
+                w_ptr += sizeof(binder_uintptr_t);
+                /* skip cookie */
+                w_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            case BC_ATTEMPT_ACQUIRE:{
+                /* not supported */
+                w_ptr += sizeof(uint32_t)*2;
+                break;
+            }
+            case BC_ACQUIRE_RESULT:{
+                /* not supported */
+                w_ptr += sizeof(uint32_t);
+                break;
+            }
+            case BC_FREE_BUFFER:{
+                binder_uintptr_t *tmp_ptr;
+                tmp_ptr = w_ptr;
+                w_ptr += sizeof(binder_uintptr_t);
+                *tmp_ptr = (binder_uintptr_t)g2h_with_tag_check(*tmp_ptr);
+                break;
+            }
+            case BC_TRANSACTION_SG:
+            case BC_REPLY_SG:{
+                struct binder_transaction_data_sg *tmp_ptr;
+                tmp_ptr = w_ptr;
+                w_ptr += sizeof(struct binder_transaction_data_sg);
+                /* skip transaction_data.target.ptr */
+                /* skip transaction_data.cookie */
+                (*tmp_ptr).transaction_data.data.ptr.buffer = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.buffer);
+                (*tmp_ptr).transaction_data.data.ptr.offsets = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.offsets);
+                break;
+            }
+            case BC_TRANSACTION:
+            case BC_REPLY:{
+                struct binder_transaction_data *tmp_ptr;
+                tmp_ptr = w_ptr;
+                w_ptr += sizeof(struct binder_transaction_data);
+                /* skip target.ptr */
+                /* skip cookie */
+                (*tmp_ptr).data.ptr.buffer = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.buffer);
+                (*tmp_ptr).data.ptr.offsets = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.offsets);
+                break;
+            }
+            case BC_REGISTER_LOOPER:
+            case BC_ENTER_LOOPER:
+            case BC_EXIT_LOOPER:
+                break;
+            case BC_REQUEST_DEATH_NOTIFICATION:
+            case BC_CLEAR_DEATH_NOTIFICATION:{
+                /* skip u32 target */
+                w_ptr += sizeof(uint32_t);
+                /* skip cookie */
+                w_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            case BC_DEAD_BINDER_DONE:{
+                /* skip cookie */
+                w_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            default:
+                qemu_log_mask(LOG_UNIMP, "Unknow binder command %d", *w_cmd);
+        }
+    }
+
+#ifdef BINDER_DEBUG
+    printf("AFTER write_buffer convert dump_w_buffer::\n");
+    hexdump_custom(target_write_buffer, host_binder.write_size);
+#endif
+
+    ret = get_errno(safe_ioctl(fd, ie->host_cmd, &host_binder));
+
+    /* TODO: Shall we restore the write buffer? */
+
+    if (is_error(ret)) {
+        return ret;
+    }
+
+#ifdef BINDER_DEBUG
+    printf("AFTER SAFE IOCTL dump_r_buffer:\n");
+    hexdump_custom(target_read_buffer, host_binder.read_size);
+#endif
+    /*
+     * Convert the addr in read_buffer (h2g)
+     * NOTE: Conversion of ptr and cookie will cause problem
+     *       Need a better test to ensure binder driver work
+     */
+    r_ptr = target_read_buffer;/* driver reply data size is read_consumed */
+    r_end = target_read_buffer + host_binder.read_consumed;
+    /* firstly read respone then command */
+    while(r_ptr < r_end ){
+        r_cmd = (uint32_t *)r_ptr;
+        r_ptr += sizeof(uint32_t);
+        /* the struct/type convert should follow original method */
+        switch(*r_cmd){
+            case BR_ONEWAY_SPAM_SUSPECT:
+            case BR_TRANSACTION_COMPLETE:
+                break;
+            case BR_TRANSACTION_PENDING_FROZEN:
+            case BR_DEAD_REPLY:
+            case BR_FAILED_REPLY:
+            case BR_FROZEN_REPLY:
+                /* according to android src, these cmd means finish */
+                goto finish_read_buffer_convert;
+            case BR_ACQUIRE_RESULT:
+                r_ptr += sizeof(uint32_t);
+                break;
+            case BR_REPLY: case BR_TRANSACTION:{
+                struct binder_transaction_data *tmp_ptr;
+                tmp_ptr = r_ptr;
+                r_ptr += sizeof(struct binder_transaction_data);
+                /* skip target.ptr */
+                /* skip cookie */
+                (*tmp_ptr).data.ptr.buffer = (binder_uintptr_t)h2g_nocheck((*tmp_ptr).data.ptr.buffer);
+                (*tmp_ptr).data.ptr.offsets = (binder_uintptr_t)h2g_nocheck((*tmp_ptr).data.ptr.offsets);
+                break;
+            }
+            /* executeCommand */
+            case BR_ERROR:
+                r_ptr += sizeof(uint32_t);
+                break;
+            case BR_OK:
+                break;
+            case BR_ACQUIRE:
+            case BR_RELEASE:
+            case BR_INCREFS:
+            case BR_DECREFS:{
+                /* skip ptr */
+                r_ptr += sizeof(binder_uintptr_t);
+                /* skip cookie */
+                r_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            case BR_ATTEMPT_ACQUIRE:{
+                /* skip s32 priority */
+                r_ptr += sizeof(uint32_t);
+                /* skip ptr */
+                r_ptr += sizeof(binder_uintptr_t);
+                /* skip cookie */
+                r_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            case BR_TRANSACTION_SEC_CTX:{
+                struct binder_transaction_data_secctx *tmp_ptr;
+                tmp_ptr = r_ptr;
+                r_ptr += sizeof(struct binder_transaction_data_secctx);
+                /* skip transaction_data.target.ptr */
+                /* skip transaction_data.cookie */
+                (*tmp_ptr).transaction_data.data.ptr.buffer = (binder_uintptr_t)h2g_nocheck((*tmp_ptr).transaction_data.data.ptr.buffer);
+                (*tmp_ptr).transaction_data.data.ptr.offsets = (binder_uintptr_t)h2g_nocheck((*tmp_ptr).transaction_data.data.ptr.offsets);
+                (*tmp_ptr).secctx = (binder_uintptr_t)h2g_nocheck((*tmp_ptr).secctx);
+                break;
+            }
+            /* case BR_TRANSACTION move above*/
+            case BR_DEAD_BINDER:
+            case BR_CLEAR_DEATH_NOTIFICATION_DONE:{
+                /* skip cookie */
+                r_ptr += sizeof(binder_uintptr_t);
+                break;
+            }
+            case BR_FINISHED:
+            case BR_NOOP:
+            case BR_SPAWN_LOOPER:
+                break;
+            default:
+                if(*r_cmd == 0){
+                    goto finish_read_buffer_convert;
+                }else{
+                    qemu_log_mask(LOG_UNIMP, "Unknow binder return command %d", *r_cmd);
+                }
+        }
+    }
+finish_read_buffer_convert:
+
+#ifdef BINDER_DEBUG
+    printf("AFTER SAFE IOCTL converted host get host_binder: w_size=%llu, w_con=%llu, w_buffer=%llx, r_size=%llu, r_con=%llu, r_buffer=%llx\n",
+           host_binder.write_size,
+           host_binder.write_consumed,
+           host_binder.write_buffer,
+           host_binder.read_size,
+           host_binder.read_consumed,
+           host_binder.read_buffer);
+    printf("AFTER SAFE IOCTL and converted dump_r_buffer:\n");
+    hexdump_custom(target_read_buffer, host_binder.read_size);
+#endif
+
+    /* restore: convert to guest pointer, just use the previous backup */
+    host_binder.write_buffer = guest_write_buffer;
+    host_binder.read_buffer = guest_read_buffer;
+
+    /* write back */
+    argptr = NULL;
+    argptr = lock_user(VERIFY_WRITE, arg, target_size, 0);
+    if (!argptr) {
+        return -TARGET_EFAULT;
+    }
+    thunk_convert(argptr, &host_binder, arg_type, THUNK_TARGET);
+    unlock_user(argptr, arg, target_size);
+
+    return ret;
+}
+
+/*
+ * As we skip ptr and cookie conversion
+ * Binder ioctl list below do not need custom do_ioctl
+ *
+ * BINDER_GET_NODE_DEBUG_INFO
+ * BINDER_SET_CONTEXT_MGR_EXT
+ */
 
 IOCTLEntry ioctl_entries[] = {
 #define IOCTL(cmd, access, ...) \
