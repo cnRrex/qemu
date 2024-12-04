@@ -719,3 +719,10 @@ STRUCT(binder_extended_error,
         TYPE_INT, /* id */
         TYPE_INT, /* command */
         TYPE_INT) /* param */
+
+/*
+ * Android ashmem struct
+ */
+STRUCT(ashmem_pin,
+       TYPE_INT, /* offset */
+       TYPE_INT) /* len */

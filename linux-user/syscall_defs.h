@@ -2863,4 +2863,22 @@ struct target_binder_extended_error {
 
 /* Binder Second part: Most of them are BC or BR command defines, add if needed */
 
+/* Android: ashmem syscall */
+#define TARGET_ASHMEM_NAME_LEN 256
+struct target_ashmem_pin {
+  abi_uint offset;
+  abi_uint len;
+};
+#define TARGET__ASHMEMIOC 0x77
+#define TARGET_ASHMEM_SET_NAME _IOW(TARGET__ASHMEMIOC, 1, char[TARGET_ASHMEM_NAME_LEN])
+#define TARGET_ASHMEM_GET_NAME _IOR(TARGET__ASHMEMIOC, 2, char[TARGET_ASHMEM_NAME_LEN])
+#define TARGET_ASHMEM_SET_SIZE _IOW(TARGET__ASHMEMIOC, 3, abi_ulong)
+#define TARGET_ASHMEM_GET_SIZE _IO(TARGET__ASHMEMIOC, 4)
+#define TARGET_ASHMEM_SET_PROT_MASK _IOW(TARGET__ASHMEMIOC, 5, abi_ulong)
+#define TARGET_ASHMEM_GET_PROT_MASK _IO(TARGET__ASHMEMIOC, 6)
+#define TARGET_ASHMEM_PIN _IOW(TARGET__ASHMEMIOC, 7, struct target_ashmem_pin)
+#define TARGET_ASHMEM_UNPIN _IOW(TARGET__ASHMEMIOC, 8, struct target_ashmem_pin)
+#define TARGET_ASHMEM_GET_PIN_STATUS _IO(TARGET__ASHMEMIOC, 9)
+#define TARGET_ASHMEM_PURGE_ALL_CACHES _IO(TARGET__ASHMEMIOC, 10)
+#define TARGET_ASHMEM_GET_FILE_ID _IOR(TARGET__ASHMEMIOC, 11, abi_ulong)
 #endif

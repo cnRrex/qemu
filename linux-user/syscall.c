@@ -149,8 +149,9 @@
 #define CLONE_IO                0x80000000      /* Clone io context */
 #endif
 
-/* Linux header of Android Binder */
+/* Linux header of Android Binder and ashmem */
 #include <linux/android/binder.h>
+#include <linux/ashmem.h>
 
 /* We can't directly call the host clone syscall, because this will
  * badly confuse libc (breaking mutexes, for example). So we must
