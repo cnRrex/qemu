@@ -8801,7 +8801,9 @@ int do_guest_openat(CPUArchState *cpu_env, int dirfd, const char *fname,
                 return fd;
             }
             /* create temporary file to map stat to */
-            tmpdir = getenv("TMPDIR");
+            tmpdir = temporary_dir;
+            if (!tmpdir)
+                tmpdir = getenv("TMPDIR");
             if (!tmpdir)
                 tmpdir = "/tmp";
             snprintf(filename, sizeof(filename), "%s/qemu-open.XXXXXX", tmpdir);

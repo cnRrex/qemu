@@ -124,6 +124,20 @@ unsigned long reserved_va;
 
 static void usage(int exitcode);
 
+/*
+ * Prepare Android linker
+ * Store it to /system/bin/gnemul/(arch)/linker(64)
+ * This is to co-exists with other emulators and use qemu arch name like i386
+ * can be changed by arg or env when enter main()
+ */
+const char *android_linker = "/system/bin/gnemul/"
+                             TARGET_NAME "/linker"
+#ifndef TARGET_ABI32
+                             "64"
+#endif
+                             "\0";
+const char *temporary_dir=NULL;
+static bool force_preserve_argv0 = true;
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
 const char *qemu_uname_release;
 
@@ -336,6 +350,22 @@ static void handle_arg_ld_prefix(const char *arg)
     interp_prefix = strdup(arg);
 }
 
+static void handle_arg_interpreter(const char *arg)
+{
+    if(arg != NULL)
+        android_linker = strdup(arg);
+}
+
+static void handle_arg_tmpdir(const char *arg)
+{
+    temporary_dir = strdup(arg);
+}
+
+static void handle_arg_no_p_flag(const char *arg)
+{
+    force_preserve_argv0 = false;
+}
+
 static void handle_arg_pagesize(const char *arg)
 {
     unsigned size, want = qemu_real_host_page_size();
@@ -497,12 +527,18 @@ static const struct qemu_argument arg_table[] = {
     {"d",          "QEMU_LOG",         true,  handle_arg_log,
      "item[,...]", "enable logging of specified items "
      "(use '-d help' for a list of items)"},
+    {"T",          "QEMU_TMPDIR",      true,  handle_arg_tmpdir,
+     "tmpdir",      "set temporary directory to 'tmpdir'"},
     {"dfilter",    "QEMU_DFILTER",     true,  handle_arg_dfilter,
      "range[,...]","filter logging based on address range"},
     {"D",          "QEMU_LOG_FILENAME", true, handle_arg_log_filename,
      "logfile",     "write logs to 'logfile' (default stderr)"},
     {"p",          "QEMU_PAGESIZE",    true,  handle_arg_pagesize,
      "pagesize",   "deprecated change to host page size"},
+    {"linker",     "QEMU_INTERPRETER", true,  handle_arg_interpreter,
+     "linkerfile", "set the Android elf interpreter to 'linkerfile'"},
+    {"no-p-flag",  "QEMU_NO_P_FLAG",   false, handle_arg_no_p_flag,
+     "",           "don't preserve argv0. default: binfmt_misc P flag enabled"},
     {"one-insn-per-tb",
                    "QEMU_ONE_INSN_PER_TB",  false, handle_arg_one_insn_per_tb,
      "",           "run with one guest instruction per emulated TB"},
@@ -578,8 +614,10 @@ static void usage(int exitcode)
     printf("\n"
            "Defaults:\n"
            "QEMU_LD_PREFIX  = %s\n"
+           "QEMU_INTERPRETER = %s\n"
            "QEMU_STACK_SIZE = %ld byte\n",
            interp_prefix,
+           android_linker,
            guest_stack_size);
 
     printf("\n"
@@ -774,6 +812,8 @@ int main(int argc, char **argv, char **envp)
      * get binfmt_misc flags
      */
     preserve_argv0 = !!(qemu_getauxval(AT_FLAGS) & AT_FLAGS_PRESERVE_ARGV0);
+    if(force_preserve_argv0)
+        preserve_argv0 = true;
 
     /*
      * Manage binfmt-misc preserve-arg[0] flag

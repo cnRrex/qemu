@@ -3507,7 +3507,7 @@ static void load_elf_image(const char *image_name, const ImageSource *src,
     exit(-1);
 }
 
-static void load_elf_interp(const char *filename, struct image_info *info,
+static void load_elf_interp(char **filename, struct image_info *info,
                             char bprm_buf[BPRM_BUF_SIZE])
 {
     struct elfhdr ehdr;
@@ -3515,9 +3515,19 @@ static void load_elf_interp(const char *filename, struct image_info *info,
     int fd, retval;
     Error *err = NULL;
 
-    fd = open(path(filename), O_RDONLY);
+    /* On Android, use gnemul linker first */
+    fd = open(path(android_linker), O_RDONLY);
+    if (fd >= 0) {
+        retval = read(fd, bprm_buf, BPRM_BUF_SIZE);
+        if (retval >= 0){
+            g_free(*filename);
+            *filename = strdup(android_linker);
+            goto load_interp_out;
+        }
+    }
+    fd = open(path(*filename), O_RDONLY);
     if (fd < 0) {
-        error_setg_file_open(&err, errno, filename);
+        error_setg_file_open(&err, errno, *filename);
         error_report_err(err);
         exit(-1);
     }
@@ -3525,15 +3535,16 @@ static void load_elf_interp(const char *filename, struct image_info *info,
     retval = read(fd, bprm_buf, BPRM_BUF_SIZE);
     if (retval < 0) {
         error_setg_errno(&err, errno, "Error reading file header");
-        error_reportf_err(err, "%s: ", filename);
+        error_reportf_err(err, "%s: ", *filename);
         exit(-1);
     }
 
+load_interp_out:
     src.fd = fd;
     src.cache = bprm_buf;
     src.cache_size = retval;
 
-    load_elf_image(filename, &src, info, &ehdr, NULL);
+    load_elf_image(*filename, &src, info, &ehdr, NULL);
 }
 
 #ifndef vdso_image_info
@@ -3835,7 +3846,7 @@ int load_elf_binary(struct linux_binprm *bprm, struct image_info *info)
     }
 
     if (elf_interpreter) {
-        load_elf_interp(elf_interpreter, &interp_info, bprm->buf);
+        load_elf_interp(&elf_interpreter, &interp_info, bprm->buf);
 
         /*
          * While unusual because of ELF_ET_DYN_BASE, if we are unlucky

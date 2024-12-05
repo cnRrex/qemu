@@ -27,6 +27,8 @@ extern char *exec_path;
 void init_task_state(TaskState *ts);
 void task_settid(TaskState *);
 void stop_all_tasks(void);
+extern const char *android_linker;
+extern const char *temporary_dir;
 extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
 
