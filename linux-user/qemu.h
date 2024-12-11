@@ -349,4 +349,15 @@ void *lock_user_string(abi_ulong guest_addr);
 #define unlock_user_struct(host_ptr, guest_addr, copy)		\
     unlock_user(host_ptr, guest_addr, (copy) ? sizeof(*host_ptr) : 0)
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
+/* define prototype */
+int qemu_main(int, char**, char**);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* QEMU_H */

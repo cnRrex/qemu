@@ -3530,7 +3530,8 @@ endif
 qom_ss = qom_ss.apply({})
 libqom = static_library('qom', qom_ss.sources() + genh,
                         dependencies: [qom_ss.dependencies()],
-                        build_by_default: false)
+                        build_by_default: false,
+                        pic: true)
 qom = declare_dependency(objects: libqom.extract_all_objects(recursive: false),
                          dependencies: qom_ss.dependencies())
 
@@ -3548,7 +3549,7 @@ util_ss = util_ss.apply({})
 libqemuutil = static_library('qemuutil',
                              build_by_default: false,
                              sources: util_ss.sources() + stub_ss.sources() + genh,
-                             dependencies: [util_ss.dependencies(), libm, threads, glib, socket, malloc])
+                             dependencies: [util_ss.dependencies(), libm, threads, glib, socket, malloc], pic: true)
 qemuutil = declare_dependency(link_with: libqemuutil,
                               sources: genh + version_res,
                               dependencies: [event_loop_base])
@@ -3872,7 +3873,8 @@ common_all = static_library('common',
                             sources: common_ss.all_sources() + genh,
                             include_directories: common_user_inc,
                             implicit_include_directories: false,
-                            dependencies: common_ss.all_dependencies())
+                            dependencies: common_ss.all_dependencies(),
+                            pic: true)
 
 feature_to_c = find_program('scripts/feature_to_c.py')
 
@@ -3981,7 +3983,8 @@ foreach target : target_dirs
                  objects: objects,
                  include_directories: target_inc,
                  c_args: c_args,
-                 build_by_default: false)
+                 build_by_default: false,
+                 pic: true)
 
   if target.endswith('-softmmu')
     execs = [{
@@ -4020,15 +4023,21 @@ foreach target : target_dirs
     if host_os == 'darwin'
       exe_name += '-unsigned'
     endif
+    exe_launcher_name = exe_name
 
-    emulator = executable(exe_name, exe['sources'],
+    emulator = library(exe_name, exe['sources'],
                install: true,
                c_args: c_args,
                dependencies: arch_deps + exe['dependencies'],
                objects: lib.extract_all_objects(recursive: true),
                link_depends: [block_syms, qemu_syms],
-               link_args: link_args,
-               win_subsystem: exe['win_subsystem'])
+               link_args: link_args)
+
+    emulator_launcher = executable(exe_launcher_name, files('linux-user/main_launcher.c'),
+                                  install: true,
+                                  c_args: c_args,
+                                  link_with: emulator,
+                                  link_args: link_args)
 
     if host_os == 'darwin'
       icon = 'pc-bios/qemu.rsrc'
@@ -4054,6 +4063,7 @@ foreach target : target_dirs
                                install_input)
     else
       emulators += {exe['name']: emulator}
+      emulators += {exe_launcher_name: emulator_launcher}
     endif
 
     traceable += [{

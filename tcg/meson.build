@@ -33,7 +33,8 @@ libtcg_user = static_library('tcg_user',
                              tcg_ss.sources() + genh,
                              dependencies: tcg_ss.dependencies(),
                              c_args: '-DCONFIG_USER_ONLY',
-                             build_by_default: false)
+                             build_by_default: false,
+                             pic: true)
 
 tcg_user = declare_dependency(objects: libtcg_user.extract_all_objects(recursive: false),
                               dependencies: tcg_ss.dependencies())
