@@ -33,16 +33,24 @@ static int (*__a_log_write)(int prio, const char *tag, const char *msg);
 static int log_prio = 6;
 void *log_handle = NULL;
 
+static void thread_func_cleanup(void *arg)
+{
+  dlclose(log_handle);
+}
+
 /* from
  * https://codelab.wordpress.com/2014/11/03/how-to-use-standard-output-streams-for-logging-in-android-apps/
  */
 static void *thread_func(void *) {
+  pthread_cleanup_push(thread_func_cleanup, NULL);
   ssize_t rdsz;
   char buf[128];
   while ((rdsz = read(pfd[0], buf, sizeof buf - 1)) > 0) {
     buf[rdsz] = 0; /* add null-terminator */
     __a_log_write(log_prio, tag, buf);
   }
+  pthread_testcancel();
+  pthread_cleanup_pop(1);
   return 0;
 }
 
@@ -59,6 +67,7 @@ int start_logger(const char *name) {
     __a_log_write = dlsym(log_handle, "__android_log_write");
     if (__a_log_write == NULL) {
       fprintf(stderr, "nb-qemu: dlsym __android_log_write failed\n");
+      dlclose(log_handle);
       return -1;
     }
   }
@@ -77,8 +86,10 @@ int start_logger(const char *name) {
   dup2(pfd[1], 2);
 
   /* spawn the logging thread */
-  if (pthread_create(&thr, 0, thread_func, 0) == -1)
+  if (pthread_create(&thr, 0, thread_func, 0) == -1){
+    dlclose(log_handle);
     return -1;
+  }
   pthread_detach(thr);
   return 0;
 }
