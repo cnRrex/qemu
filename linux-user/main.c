@@ -783,6 +783,17 @@ int qemu_main(int argc, char **argv, char **envp)
 
     optind = parse_args(argc, argv);
 
+    /* after parse_args, see if needed to start android log redirector*/
+    if(_nb_qemu_){
+        int ret_redirector = start_logger("qemu-" TARGET_NAME);
+        if (ret_redirector){
+            fprintf(stderr, "nb-qemu is set but start android log redirector failed\n");
+            exit(EXIT_FAILURE);
+        }
+        /* a log for debug */
+        fprintf(stdout, "set to nb-qemu mode\n");
+    }
+
     qemu_set_log_filename_flags(last_log_filename,
                                 last_log_mask | (enable_strace * LOG_STRACE),
                                 &error_fatal);
