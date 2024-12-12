@@ -8805,6 +8805,8 @@ int do_guest_openat(CPUArchState *cpu_env, int dirfd, const char *fname,
             if (!tmpdir)
                 tmpdir = getenv("TMPDIR");
             if (!tmpdir)
+                tmpdir = "/data/local/tmp";
+            if (access(tmpdir, R_OK | W_OK))
                 tmpdir = "/tmp";
             snprintf(filename, sizeof(filename), "%s/qemu-open.XXXXXX", tmpdir);
             fd = mkstemp(filename);
