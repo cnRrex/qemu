@@ -138,6 +138,8 @@ const char *android_linker = "/system/bin/gnemul/"
                              "\0";
 const char *temporary_dir=NULL;
 static bool force_preserve_argv0 = true;
+bool _nb_qemu_ = false;
+bool _nb_debug_ = false;
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
 const char *qemu_uname_release;
 
@@ -366,6 +368,16 @@ static void handle_arg_no_p_flag(const char *arg)
     force_preserve_argv0 = false;
 }
 
+static void handle_arg_nb_qemu(const char *arg)
+{
+    _nb_qemu_ = true;
+}
+
+static void handle_arg_nb_debug(const char *arg)
+{
+    _nb_debug_ = true;
+}
+
 static void handle_arg_pagesize(const char *arg)
 {
     unsigned size, want = qemu_real_host_page_size();
@@ -539,6 +551,10 @@ static const struct qemu_argument arg_table[] = {
      "linkerfile", "set the Android elf interpreter to 'linkerfile'"},
     {"no-p-flag",  "QEMU_NO_P_FLAG",   false, handle_arg_no_p_flag,
      "",           "don't preserve argv0. default: binfmt_misc P flag enabled"},
+    {"nb-qemu",     "QEMU_NB_qemu",    false, handle_arg_nb_qemu,
+     "",           "set qemu to nb-qemu mode"},
+    {"nb-debug",   "QEMU_NB_DEBUG",    false, handle_arg_nb_debug,
+     "",           "set nb-qemu in nb-qemu debug mode"},
     {"one-insn-per-tb",
                    "QEMU_ONE_INSN_PER_TB",  false, handle_arg_one_insn_per_tb,
      "",           "run with one guest instruction per emulated TB"},
