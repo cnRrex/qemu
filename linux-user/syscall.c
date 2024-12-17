@@ -5697,8 +5697,8 @@ static abi_long do_ioctl_binder_write_read(const IOCTLEntry *ie, uint8_t *buf_te
      */
     target_write_buffer = lock_user_nocopy_internal(VERIFY_WRITE, guest_write_buffer, host_binder.write_size);
     target_read_buffer = lock_user_nocopy_internal(VERIFY_WRITE, guest_read_buffer, host_binder.read_size);
-    host_binder.write_buffer = (binder_uintptr_t)target_write_buffer;
-    host_binder.read_buffer = (binder_uintptr_t)target_read_buffer;
+    host_binder.write_buffer = (binder_uintptr_t)(intptr_t)target_write_buffer;
+    host_binder.read_buffer = (binder_uintptr_t)(intptr_t)target_read_buffer;
 
 #ifdef BINDER_DEBUG
     printf("converted host_binder: w_buffer=%llx, r_buffer=%llx\ndump_w_buffer:\n",
@@ -5751,7 +5751,7 @@ static abi_long do_ioctl_binder_write_read(const IOCTLEntry *ie, uint8_t *buf_te
                 binder_uintptr_t *tmp_ptr;
                 tmp_ptr = w_ptr;
                 w_ptr += sizeof(binder_uintptr_t);
-                *tmp_ptr = (binder_uintptr_t)g2h_with_tag_check(*tmp_ptr);
+                *tmp_ptr = (binder_uintptr_t)(intptr_t)g2h_with_tag_check(*tmp_ptr);
                 break;
             }
             case BC_TRANSACTION_SG:
@@ -5761,8 +5761,8 @@ static abi_long do_ioctl_binder_write_read(const IOCTLEntry *ie, uint8_t *buf_te
                 w_ptr += sizeof(struct binder_transaction_data_sg);
                 /* skip transaction_data.target.ptr */
                 /* skip transaction_data.cookie */
-                (*tmp_ptr).transaction_data.data.ptr.buffer = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.buffer);
-                (*tmp_ptr).transaction_data.data.ptr.offsets = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.offsets);
+                (*tmp_ptr).transaction_data.data.ptr.buffer = (binder_uintptr_t)(intptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.buffer);
+                (*tmp_ptr).transaction_data.data.ptr.offsets = (binder_uintptr_t)(intptr_t)g2h_with_tag_check((*tmp_ptr).transaction_data.data.ptr.offsets);
                 break;
             }
             case BC_TRANSACTION:
@@ -5772,8 +5772,8 @@ static abi_long do_ioctl_binder_write_read(const IOCTLEntry *ie, uint8_t *buf_te
                 w_ptr += sizeof(struct binder_transaction_data);
                 /* skip target.ptr */
                 /* skip cookie */
-                (*tmp_ptr).data.ptr.buffer = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.buffer);
-                (*tmp_ptr).data.ptr.offsets = (binder_uintptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.offsets);
+                (*tmp_ptr).data.ptr.buffer = (binder_uintptr_t)(intptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.buffer);
+                (*tmp_ptr).data.ptr.offsets = (binder_uintptr_t)(intptr_t)g2h_with_tag_check((*tmp_ptr).data.ptr.offsets);
                 break;
             }
             case BC_REGISTER_LOOPER:
