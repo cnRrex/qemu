@@ -144,6 +144,7 @@
 #include "qapi/error.h"
 #include "fd-trans.h"
 #include "cpu_loop-common.h"
+#include "user/nb-qemu.h"
 
 #ifndef CLONE_IO
 #define CLONE_IO                0x80000000      /* Clone io context */
@@ -6945,6 +6946,7 @@ static int do_fork(CPUArchState *env, unsigned int flags, abi_ulong newsp,
         flags &= ~(CLONE_VFORK | CLONE_VM);
 
     if (flags & CLONE_VM) {
+      if(!need_new_cpu){
         TaskState *parent_ts = get_task_state(cpu);
         new_thread_info info;
         pthread_attr_t attr;
@@ -7026,6 +7028,14 @@ static int do_fork(CPUArchState *env, unsigned int flags, abi_ulong newsp,
         pthread_cond_destroy(&info.cond);
         pthread_mutex_destroy(&info.mutex);
         pthread_mutex_unlock(&clone_lock);
+      }else{
+        abi_ulong current_tid = sys_gettid();
+        alloc_child_stack = newsp;
+        alloc_new_tls = newtls;
+        put_user_u32(current_tid, child_tidptr);
+        put_user_u32(current_tid, parent_tidptr);
+        ret = current_tid;
+      }
     } else {
         /* if no CLONE_VM, we consider it is a fork */
         if (flags & CLONE_INVALID_FORK_FLAGS) {
@@ -9545,11 +9555,15 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
             thread_cpu = NULL;
             g_free(ts);
             rcu_unregister_thread();
+            if(!need_del_cpu)
             pthread_exit(NULL);
+            if(need_del_cpu)
+                return 0;
         }
 
         pthread_mutex_unlock(&clone_lock);
         preexit_cleanup(cpu_env, arg1);
+        if(!need_del_cpu)
         _exit(arg1);
         return 0; /* avoid warning */
     case TARGET_NR_read:
@@ -14158,6 +14172,11 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
 #endif
 
     default:
+        if (syscall_handler){
+            //TODO: add arg7 arg8 if needed
+            /* TODO REMOVE: Once we have new interrupt, drop this */
+            return syscall_handler(cpu_env, num, arg1, arg2, arg3, arg4, arg5, arg6);
+        }
         qemu_log_mask(LOG_UNIMP, "Unsupported syscall: %d\n", num);
         return -TARGET_ENOSYS;
     }

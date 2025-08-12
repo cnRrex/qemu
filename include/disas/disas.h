@@ -37,5 +37,6 @@ struct syminfo {
 
 /* Filled in by elfload.c.  Simplistic, but will do for now. */
 extern struct syminfo *syminfos;
+extern struct syminfo *dynsyminfos;
 
 #endif /* QEMU_DISAS_H */

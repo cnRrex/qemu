@@ -28,6 +28,8 @@
 #include "fpu/softfloat-macros.h"
 #include "helper-tcg.h"
 #include "access.h"
+// export some function for nb-qemu
+#include "user/nb-qemu.h"
 
 /* float macros */
 #define FT0    (env->ft0)

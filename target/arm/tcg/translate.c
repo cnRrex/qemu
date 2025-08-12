@@ -27,6 +27,7 @@
 #include "semihosting/semihost.h"
 #include "cpregs.h"
 #include "exec/helper-proto.h"
+#include "user/nb-qemu.h"
 
 #define HELPER_H "helper.h"
 #include "exec/helper-info.c.inc"
@@ -4487,7 +4488,8 @@ static bool trans_YIELD(DisasContext *s, arg_YIELD *a)
      * MTTCG we don't generate jumps to the helper as it won't affect the
      * scheduling of other vCPUs.
      */
-    if (!(tb_cflags(s->base.tb) & CF_PARALLEL)) {
+    /* yield is necessary for nb-qemu */
+    if (!(tb_cflags(s->base.tb) & CF_PARALLEL) || _nb_qemu_) {
         gen_update_pc(s, curr_insn_len(s));
         s->base.is_jmp = DISAS_YIELD;
     }
@@ -7624,6 +7626,9 @@ static void arm_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     cpu_V0 = tcg_temp_new_i64();
     cpu_V1 = tcg_temp_new_i64();
     cpu_M0 = tcg_temp_new_i64();
+
+    /* pass pc_stop to disas */
+    dc->pc_stop = env->pc_stop;
 }
 
 static void arm_tr_tb_start(DisasContextBase *dcbase, CPUState *cpu)
@@ -7744,6 +7749,14 @@ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     CPUARMState *env = cpu_env(cpu);
     uint32_t pc = dc->base.pc_next;
     unsigned int insn;
+
+    /* call trans_YIELD when reach pc_stop when in nb-qemu */
+    if(_nb_qemu_){
+        if (dc->base.pc_next == dc->pc_stop ) {
+            trans_YIELD(dc, NULL);
+            return;
+        }
+    }
 
     /* Singlestep exceptions have the highest priority. */
     if (arm_check_ss_active(dc)) {

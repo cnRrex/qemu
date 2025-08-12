@@ -25,8 +25,10 @@ option('block_drv_rw_whitelist', type : 'string', value : '',
        description: 'set block driver read-write whitelist (by default affects only QEMU, not tools like qemu-img)')
 option('block_drv_ro_whitelist', type : 'string', value : '',
        description: 'set block driver read-only whitelist (by default affects only QEMU, not tools like qemu-img)')
-option('interp_prefix', type : 'string', value : '/usr/gnemul/qemu-%M',
-       description: 'where to find shared libraries etc., use %M for cpu name')
+option('interp_prefix', type : 'string', value : '/system/%B/%M/qemu_runtime',
+       description: 'where to find shared libraries etc., use %M for cpu name, use %B for lib/lib64')
+option('interp_prefix_nb', type : 'string', value : '/system/%B/%M/qemu_nb',
+       description: 'where to find native bridge shared libraries etc., use %M for cpu name, use %B for lib/lib64')
 option('fuzzing_engine', type : 'string', value : '',
        description: 'fuzzing engine library for OSS-Fuzz')
 option('trace_file', type: 'string', value: 'trace',

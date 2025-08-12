@@ -780,6 +780,8 @@ typedef struct CPUArchState {
     /* Linux syscall tagged address support */
     bool tagged_addr_enable;
 #endif
+    /* a stop pc to generate Yield for qemu_android */
+    uint64_t pc_stop;
 } CPUARMState;
 
 static inline void set_feature(CPUARMState *env, int feature)

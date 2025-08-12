@@ -29,8 +29,6 @@ void task_settid(TaskState *);
 void stop_all_tasks(void);
 extern const char *android_linker;
 extern const char *temporary_dir;
-extern bool _nb_qemu_;
-extern bool _nb_debug_;
 extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
 
@@ -69,14 +67,15 @@ abi_long do_syscall(CPUArchState *cpu_env, int num, abi_long arg1,
                     abi_long arg5, abi_long arg6, abi_long arg7,
                     abi_long arg8);
 extern __thread CPUState *thread_cpu;
-G_NORETURN void cpu_loop(CPUArchState *env);
+/* nb-qemu current design to return for tramp calling */
+//G_NORETURN void cpu_loop(CPUArchState *env);
+void cpu_loop(CPUArchState *env);
 abi_long get_errno(abi_long ret);
 const char *target_strerror(int err);
 int get_osversion(void);
 void init_qemu_uname_release(void);
 void fork_start(void);
 void fork_end(pid_t pid);
-int start_logger(const char *name);
 
 /**
  * probe_guest_base:

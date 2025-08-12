@@ -47,6 +47,7 @@ bsd_oses = ['gnu/kfreebsd', 'freebsd', 'netbsd', 'openbsd', 'dragonfly', 'darwin
 supported_oses = ['windows', 'freebsd', 'netbsd', 'openbsd', 'darwin', 'sunos', 'linux']
 supported_cpus = ['ppc', 'ppc64', 's390x', 'riscv32', 'riscv64', 'x86', 'x86_64',
   'arm', 'aarch64', 'loongarch64', 'mips', 'mips64', 'sparc64']
+list_32bit_cpus = ['ppc', 'riscv32', 'x86', 'arm', 'mips']
 
 cpu = host_machine.cpu_family()
 
@@ -213,6 +214,17 @@ elif cpu in ['riscv32', 'riscv64']
   host_arch = 'riscv'
 else
   host_arch = cpu
+endif
+
+if cpu in supported_cpus
+  if cpu in list_32bit_cpus
+    android_lib = 'lib'
+  else
+    android_lib = 'lib64'
+  endif
+else
+  warning('Unknown host arch for android lib/lib64, please fix')
+  android_lib = 'unknown'
 endif
 
 if cpu in ['x86', 'x86_64']
@@ -3124,10 +3136,18 @@ foreach target : target_dirs
     config_target += { 'CONFIG_SOFTMMU': 'y' }
   endif
   if target.endswith('-user')
+    android_arch = config_target['TARGET_NAME']
+    if android_arch == 'aarch64'
+      android_arch = 'arm64'
+    elif android_arch == 'i386'
+      android_arch = 'x86'
+    endif
     config_target += {
       'CONFIG_USER_ONLY': 'y',
       'CONFIG_QEMU_INTERP_PREFIX':
-        get_option('interp_prefix').replace('%M', config_target['TARGET_NAME'])
+        get_option('interp_prefix').replace('%B', android_lib).replace('%M', android_arch),
+      'CONFIG_QEMU_INTERP_PREFIX_NB':
+        get_option('interp_prefix_nb').replace('%B', android_lib).replace('%M', android_arch)
     }
   endif
 
@@ -3194,7 +3214,7 @@ foreach target : target_dirs
       # Note that TARGET_BASE_ARCH ends up in config-target.h but it is
       # not used to select files from sourcesets.
       config_target_data.set('TARGET_' + v.to_upper(), 1)
-    elif k == 'TARGET_NAME' or k == 'CONFIG_QEMU_INTERP_PREFIX'
+    elif k == 'TARGET_NAME' or k == 'CONFIG_QEMU_INTERP_PREFIX' or k == 'CONFIG_QEMU_INTERP_PREFIX_NB'
       config_target_data.set_quoted(k, v)
     elif v == 'y'
       config_target_data.set(k, 1)

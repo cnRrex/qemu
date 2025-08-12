@@ -57,6 +57,7 @@
 #include "user-mmap.h"
 #include "tcg/perf.h"
 #include "exec/page-vary.h"
+#include "user/nb-qemu.h"
 
 #ifdef CONFIG_SEMIHOSTING
 #include "semihosting/semihost.h"
@@ -126,11 +127,12 @@ static void usage(int exitcode);
 
 /*
  * Prepare Android linker
- * Store it to /system/bin/gnemul/(arch)/linker(64)
+ * Store it to /system/bin/qemu/(arch)/linker(64)
  * This is to co-exists with other emulators and use qemu arch name like i386
  * can be changed by arg or env when enter main()
+ * This arg can be used without nb-qemu, so name it qemu
  */
-const char *android_linker = "/system/bin/gnemul/"
+const char *android_linker = "/system/bin/qemu/"
                              TARGET_NAME "/linker"
 #ifndef TARGET_ABI32
                              "64"
@@ -140,6 +142,8 @@ const char *temporary_dir=NULL;
 static bool force_preserve_argv0 = true;
 bool _nb_qemu_ = false;
 bool _nb_debug_ = false;
+bool _binfmt_with_nb_ = false;
+static const char *interp_prefix_nb = CONFIG_QEMU_INTERP_PREFIX_NB;
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
 const char *qemu_uname_release;
 
@@ -352,6 +356,11 @@ static void handle_arg_ld_prefix(const char *arg)
     interp_prefix = strdup(arg);
 }
 
+static void handle_arg_ld_prefix_nb(const char *arg)
+{
+    interp_prefix_nb = strdup(arg);
+}
+
 static void handle_arg_interpreter(const char *arg)
 {
     if(arg != NULL)
@@ -366,11 +375,6 @@ static void handle_arg_tmpdir(const char *arg)
 static void handle_arg_no_p_flag(const char *arg)
 {
     force_preserve_argv0 = false;
-}
-
-static void handle_arg_nb_qemu(const char *arg)
-{
-    _nb_qemu_ = true;
 }
 
 static void handle_arg_nb_debug(const char *arg)
@@ -520,6 +524,8 @@ static const struct qemu_argument arg_table[] = {
      "port",       "wait gdb connection to 'port'"},
     {"L",          "QEMU_LD_PREFIX",   true,  handle_arg_ld_prefix,
      "path",       "set the elf interpreter prefix to 'path'"},
+    {"LNB",        "QEMU_LD_PREFIX_NB",true,  handle_arg_ld_prefix_nb,
+     "path",       "set the native bridge elf interpreter prefix to 'path'"},
     {"s",          "QEMU_STACK_SIZE",  true,  handle_arg_stack_size,
      "size",       "set the stack size to 'size' bytes"},
     {"cpu",        "QEMU_CPU",         true,  handle_arg_cpu,
@@ -551,8 +557,6 @@ static const struct qemu_argument arg_table[] = {
      "linkerfile", "set the Android elf interpreter to 'linkerfile'"},
     {"no-p-flag",  "QEMU_NO_P_FLAG",   false, handle_arg_no_p_flag,
      "",           "don't preserve argv0. default: binfmt_misc P flag enabled"},
-    {"nb-qemu",     "QEMU_NB_qemu",    false, handle_arg_nb_qemu,
-     "",           "set qemu to nb-qemu mode"},
     {"nb-debug",   "QEMU_NB_DEBUG",    false, handle_arg_nb_debug,
      "",           "set nb-qemu in nb-qemu debug mode"},
     {"one-insn-per-tb",
@@ -630,9 +634,11 @@ static void usage(int exitcode)
     printf("\n"
            "Defaults:\n"
            "QEMU_LD_PREFIX  = %s\n"
+           "QEMU_LD_PREFIX_NB =%s\n"
            "QEMU_INTERPRETER = %s\n"
            "QEMU_STACK_SIZE = %ld byte\n",
            interp_prefix,
+           interp_prefix_nb,
            android_linker,
            guest_stack_size);
 
@@ -785,13 +791,29 @@ int qemu_main(int argc, char **argv, char **envp)
 
     /* after parse_args, see if needed to start android log redirector*/
     if(_nb_qemu_){
-        int ret_redirector = start_logger("qemu-" TARGET_NAME);
-        if (ret_redirector){
+        if (start_logger("qemu-" TARGET_NAME)){
             fprintf(stderr, "nb-qemu is set but start android log redirector failed\n");
             exit(EXIT_FAILURE);
         }
-        /* a log for debug */
-        fprintf(stdout, "set to nb-qemu mode\n");
+    }
+    /* After setting up the android log, try getting nb-qemu proxy libs interface for binfmt */
+    /* Otherwise dont use the proxy libs interface TODO  */
+    if (qemu_android_get_nb_fcn()) {
+        //failed
+        fprintf(stderr, "Failed to get nb interface for qemu\n");
+        if (_nb_qemu_){
+            exit(EXIT_FAILURE);
+        } else {
+            fprintf(stderr, "Running without nb support\n");
+            _binfmt_with_nb_ = false;
+        }
+    } else {
+        //success
+        if (_nb_qemu_){
+            exit(EXIT_FAILURE);
+        } else {
+            _binfmt_with_nb_ = true;
+        }
     }
 
     qemu_set_log_filename_flags(last_log_filename,
@@ -814,6 +836,10 @@ int qemu_main(int argc, char **argv, char **envp)
 
     /* Scan interp_prefix dir for replacement files. */
     init_paths(interp_prefix);
+    if ( _nb_qemu_ || _binfmt_with_nb_) {
+        //only if we have nb interface then init the nb rootfs
+        init_paths_nb(interp_prefix_nb);
+    }
 
     init_qemu_uname_release();
 
@@ -1069,7 +1095,7 @@ int qemu_main(int argc, char **argv, char **envp)
 
     target_set_brk(info->brk);
     syscall_init();
-    signal_init();
+    signal_init();//TODO: comment this if needed
 
     /* Now that we've loaded the binary, GUEST_BASE is fixed.  Delay
        generating the prologue until now so that the prologue can take
@@ -1090,6 +1116,32 @@ int qemu_main(int argc, char **argv, char **envp)
 #ifdef CONFIG_SEMIHOSTING
     qemu_semihosting_guestfd_init();
 #endif
+
+    if(_nb_qemu_){
+        /* nb-qemu-guest loads android linker and stop at start_code */
+        env->pc_stop = info->start_code; //old method
+        //TODO info->start_code is not the point we need
+        //get the mark by symbol
+        //nb_stop = info->start_code; //we will set the syscall insn at entry point
+
+        /* when everythings ready, setup QemuAndroid */
+        int setup_guest_ret = qemu_android_setup_guest(info, &bprm, &cpu_type);
+
+        if (setup_guest_ret) {
+            fprintf(stderr, "QemuAndroid: could not qemu_android_setup_guest: %d\n",
+                    setup_guest_ret);
+            return setup_guest_ret;
+        }
+        /*
+         * According to linux-user/syscall.c - do_fork(). We need to set
+         * CF_PARALLEL to let every cpu parallel. but actually nb-qemu
+         * not take control of pthread_create. So hard set it.
+         */
+        if (!tcg_cflags_has(cpu, CF_PARALLEL)) {
+            tcg_cflags_set(cpu, CF_PARALLEL);
+            tb_flush(cpu);
+        }
+    }
 
     cpu_loop(env);
     /* never exits */

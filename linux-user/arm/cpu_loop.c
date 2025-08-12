@@ -26,6 +26,7 @@
 #include "semihosting/common-semi.h"
 #include "exec/page-protection.h"
 #include "target/arm/syndrome.h"
+#include "user/nb-qemu.h"
 
 #define get_user_code_u32(x, gaddr, env)                \
     ({ abi_long __r = get_user_u32((x), (gaddr));       \
@@ -323,6 +324,7 @@ void cpu_loop(CPUARMState *env)
     int trapnr, si_signo, si_code;
     unsigned int n, insn;
     abi_ulong ret;
+    bool nb_need_stop = false;
 
     for(;;) {
         cpu_exec_start(cs);
@@ -437,6 +439,76 @@ void cpu_loop(CPUARMState *env)
                         break;
                     }
                 } else {
+                    // /* //FIXME: Linux ignores the immediate, so an adversarial program could use a non-zero value */
+                    // ACTUALLY when zero immediate it set the n to syscall num, and if not it set n ^= ARM_SYSCALL_BASE;
+                    // so we should use new method
+                    // /* We need a judgement to ensure the environment is from guest thunk lib */
+                    // if( (env->exception.syndrome & 0xffff)!=0 && svc_handler ){
+                    //     svc_handler(env, env->exception.syndrome & 0xffff);
+                    //     break;
+                    // }
+
+                    /* new method, let's check which kind of interrupt we meet */
+                    //nb-qemu-guest shall not build with thumb mode
+                    if (!env->thumb && _nb_qemu_){
+                        
+                        // is it a qemu_call pc stop?
+                        if (env->regs[15] - 4 == nb_stop) { //TODO: the address may need to convert
+                            //we cant return at here, as the next time we have to re cpu_loop again.
+                            nb_need_stop = true;
+                            break;
+                        }
+                        // is it a guest call host generic call addr?
+                        else if (env->regs[15] - 4 == nb_call_host) { //TODO: the address may need to convert
+                            //do something
+                            // call qemu_android_call_host_handler
+                            // and if there any aapcs-vfp call it should tell us when create this tramp
+                            // if error happen in handler, exit directly.
+                            qemu_android_call_host_handler(env);
+                            break;
+                        }
+                    }
+                    // Now the call_host_static could work with binfmt_misc mode
+                    // the stub lib is build with arm mode but not the common lib
+                    // so check the thumb mode
+
+                    // is it a static call host tramp interrupt?
+                    unsigned int insn; 
+                    get_user_code_u32(insn, env->regs[15], env); /* FIXME - what to do if get_user() fails? *///TODO: the address may need to convert
+                    fprintf(stderr, "cpu_loop get_user_code_u32: 0x%x, remove this log once we tested\n", insn);
+                    if ( !env->thumb && insn == 0xEAFFFFFE) { // asm: "b ." is an Infinite loop
+                        // check the number after this
+                        uint16_t lib_num, sym_num;
+
+                        get_user_u16(lib_num, env->regs[15] + 4);//TODO: the address may need to convert
+                        get_user_u16(sym_num, env->regs[15] + 6);//TODO: the address may need to convert
+                        //TODO: call handler
+                        // if handle successful, skip the insn to return,
+                        // else just exit anyway, should make some assertion in handler.
+                        // but if the number is not accepted , run it any way
+                        if (!qemu_android_call_host_static(env, lib_num, sym_num))
+                            env->regs[15] += 8;//skip b. and  number
+                        //do something
+                        break;
+                    } else if (env->thumb && (insn & 0x0000ffff) == 0x0000E7FE) //asm: "b.\n $lib_num\n"
+                    {
+                        // check the number after this
+                        uint16_t lib_num, sym_num;
+                        
+                        get_user_u16(lib_num, env->regs[15] + 2);//TODO: the address may need to convert
+                        get_user_u16(sym_num, env->regs[15] + 4);//TODO: the address may need to convert
+                        //TODO: call handler
+                        // if handle successful, skip the insn to return,
+                        // else just exit anyway, should make some assertion in handler.
+                        // but if the number is not accepted , run it any way
+                        if (!qemu_android_call_host_static(env, lib_num, sym_num))
+                            env->regs[15] += 6;//skip b. and  number
+                        //do something
+                        break;
+                    }
+                    
+                    // After 4 if and a get_user_code_u32, do syscall as usual
+
                     ret = do_syscall(env,
                                      n,
                                      env->regs[0],
@@ -509,6 +581,11 @@ void cpu_loop(CPUARMState *env)
             abort();
         }
         process_pending_signals(env);
+        /* in nb-qemu mode, stop and handle by qemu_android call */
+        // if (_nb_qemu_ && (trapnr==EXCP_YIELD)){
+        //     return;
+        // }
+        if (nb_need_stop) return;
     }
 }
 

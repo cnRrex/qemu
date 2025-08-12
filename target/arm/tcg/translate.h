@@ -169,6 +169,8 @@ typedef struct DisasContext {
     int c15_cpar;
     /* Offset from VNCR_EL2 when FEAT_NV2 redirects this reg to memory */
     uint32_t nv2_redirect_offset;
+    /* a stop pc to generate Yield for qemu_android */
+    uint64_t pc_stop;
 } DisasContext;
 
 typedef struct DisasCompare {

@@ -24,6 +24,7 @@
 #include "cpu_loop-common.h"
 #include "signal-common.h"
 #include "user-mmap.h"
+#include "user/nb-qemu.h"
 
 /***********************************************************/
 /* CPUX86 core interface */
@@ -208,6 +209,7 @@ void cpu_loop(CPUX86State *env)
     CPUState *cs = env_cpu(env);
     int trapnr;
     abi_ulong ret;
+    bool nb_need_stop = false;
 
     for(;;) {
         cpu_exec_start(cs);
@@ -220,6 +222,46 @@ void cpu_loop(CPUX86State *env)
 #ifndef TARGET_X86_64
         case EXCP_SYSCALL:
 #endif
+            /* let's check which kind of interrupt we meet */
+            /* NOTE: on x86_64 int 0x80 reach here ? */
+            if (_nb_qemu_){
+                // is it a qemu_call pc stop?
+                if (env->eip - 2 == nb_stop) {
+                    //we cant return at here, as the next time we have to re cpu_loop again.
+                    nb_need_stop = true;
+                    break;
+                }
+                // is it a guest call host generic call addr?
+                else if (env->eip - 2 == nb_call_host) {
+                    // call qemu_android_call_host_handler
+                    // if error happen in handler, exit directly.
+                    qemu_android_call_host_handler(env);
+                    break;
+                }
+            }
+            // Now the call_host_static could work with binfmt_misc mode
+
+            // is it a static call host tramp interrupt?
+            unsigned short insn; //TODO: this may need to put outside
+            get_user_u16(insn, env->eip); /* FIXME - what to do if get_user() fails? */
+            fprintf(stderr, "cpu_loop get_user_u16: 0x%x, remove this log once we tested\n", insn);
+            if (insn == 0xFEEB) { // asm: "jmp ." is an Infinite loop
+                // check and extract the number after this, send it to the handler
+                uint16_t lib_num, sym_num;
+
+                get_user_u16(lib_num, env->eip + 2);
+                get_user_u16(sym_num, env->eip + 4);
+                //TODO: call handler
+                // if handle successful, skip the insn to return,
+                // else just exit anyway, should make some assertion in handler.
+                // but if the number is not accepted , run it any way
+                if (!qemu_android_call_host_static(env, lib_num, sym_num))
+                    env->eip += 6;//skip jmp . and  number
+                //do something
+                break;
+            }
+            //After 4 if and a get_user, do syscall as usual
+
             /* linux syscall from int $0x80 */
             ret = do_syscall(env,
                              env->regs[R_EAX],
@@ -238,6 +280,47 @@ void cpu_loop(CPUX86State *env)
             break;
 #ifdef TARGET_X86_64
         case EXCP_SYSCALL:
+            /* let's check which kind of interrupt we meet */
+            /* NOTE: on x86_64 syscall instr reach here ? the instr may differ*/
+            if (_nb_qemu_){
+                // is it a qemu_call pc stop?
+                if (env->eip - 2 == nb_stop) {
+                    //we cant return at here, as the next time we have to re cpu_loop again.
+                    nb_need_stop = true;
+                    break;
+                }
+                // is it a guest call host generic call addr?
+                else if (env->eip - 2 == nb_call_host) {
+                    // call qemu_android_call_host_handler
+                    // if error happen in handler, exit directly.
+                    qemu_android_call_host_handler(env);
+                    break;
+                }
+            }
+            // Now the call_host_static could work with binfmt_misc mode
+
+            // is it a static call host tramp interrupt?
+            unsigned short insn; //TODO: this may need to put outside
+            get_user_u16(insn, env->eip); /* FIXME - what to do if get_user() fails? */
+            fprintf(stderr, "cpu_loop get_user_u16: 0x%x, remove this log once we tested\n", insn);
+            if (insn == 0xFEEB) { // asm: "jmp ." is an Infinite loop
+                // check and extract the number after this, send it to the handler
+                uint16_t lib_num, sym_num;
+
+                get_user_u16(lib_num, env->eip + 2);
+                get_user_u16(sym_num, env->eip + 4);
+                //TODO: call handler
+                // if handle successful, skip the insn to return,
+                // else just exit anyway, should make some assertion in handler.
+                // but if the number is not accepted , run it any way
+                if (!qemu_android_call_host_static(env, lib_num, sym_num))
+                    env->eip += 6;//skip jmp . and  number
+                //do something
+                break;
+            }
+
+            // After 4 if and a get_user, do syscall as usual
+
             /* linux syscall from syscall instruction.  */
             ret = do_syscall(env,
                              env->regs[R_EAX],
@@ -318,6 +401,8 @@ void cpu_loop(CPUX86State *env)
             abort();
         }
         process_pending_signals(env);
+
+        if (nb_need_stop) return;
     }
 }
 

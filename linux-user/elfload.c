@@ -26,6 +26,7 @@
 #include "qemu/error-report.h"
 #include "target_signal.h"
 #include "tcg/debuginfo.h"
+#include "user/nb-qemu.h"
 
 #ifdef TARGET_ARM
 #include "target/arm/cpu-features.h"
@@ -2216,7 +2217,7 @@ static inline void bswap_mips_abiflags(Mips_elf_abiflags_v0 *abiflags) { }
 static int elf_core_dump(int, const CPUArchState *);
 #endif /* USE_ELF_CORE_DUMP */
 static void load_symbols(struct elfhdr *hdr, const ImageSource *src,
-                         abi_ulong load_bias);
+                         abi_ulong load_bias, bool is_dynsym);
 
 /* Verify the portions of EHDR within E_IDENT for the target.
    This can be performed before bswapping the entire header.  */
@@ -3489,7 +3490,11 @@ static void load_elf_image(const char *image_name, const ImageSource *src,
     }
 
     if (qemu_log_enabled()) {
-        load_symbols(ehdr, src, load_bias);
+        load_symbols(ehdr, src, load_bias, false);
+    }
+    if (_nb_qemu_) {
+        //for nb-qemu load dynamic symbol for lookup, affect nb-guest, interpreter, vdso
+        load_symbols(ehdr, src, load_bias, true);
     }
 
     debuginfo_report_elf(image_name, src->fd, load_bias);
@@ -3515,7 +3520,7 @@ static void load_elf_interp(char **filename, struct image_info *info,
     int fd, retval;
     Error *err = NULL;
 
-    /* On Android, use gnemul linker first */
+    /* On Android, use nb-qemu linker first */
     fd = open(path(android_linker), O_RDONLY);
     if (fd >= 0) {
         retval = read(fd, bprm_buf, BPRM_BUF_SIZE);
@@ -3640,7 +3645,7 @@ static int symcmp(const void *s0, const void *s1)
 
 /* Best attempt to load symbols from this ELF object. */
 static void load_symbols(struct elfhdr *hdr, const ImageSource *src,
-                         abi_ulong load_bias)
+                         abi_ulong load_bias, bool is_dynsym)
 {
     int i, shnum, nsyms, sym_idx = 0, str_idx = 0;
     g_autofree struct elf_shdr *shdr = NULL;
@@ -3658,7 +3663,7 @@ static void load_symbols(struct elfhdr *hdr, const ImageSource *src,
 
     bswap_shdr(shdr, shnum);
     for (i = 0; i < shnum; ++i) {
-        if (shdr[i].sh_type == SHT_SYMTAB) {
+        if (shdr[i].sh_type == (is_dynsym ? SHT_DYNSYM : SHT_SYMTAB)) {
             sym_idx = i;
             str_idx = shdr[i].sh_link;
             goto found;
@@ -3746,8 +3751,8 @@ static void load_symbols(struct elfhdr *hdr, const ImageSource *src,
         s->disas_symtab.elf64 = syms;
 #endif
         s->lookup_symbol = lookup_symbolxx;
-        s->next = syminfos;
-        syminfos = s;
+        s->next = (is_dynsym ? dynsyminfos : syminfos);
+        (is_dynsym ? dynsyminfos : syminfos) = s;
     }
     return;
 

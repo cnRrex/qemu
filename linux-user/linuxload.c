@@ -6,6 +6,7 @@
 #include "user-mmap.h"
 #include "loader.h"
 #include "qapi/error.h"
+#include "user/nb-qemu.h"
 
 #define NGROUPS 32
 
@@ -47,6 +48,8 @@ static int prepare_binprm(struct linux_binprm *bprm)
     if (!S_ISREG(mode)) {   /* Must be regular file */
         return -EACCES;
     }
+    /* check only when not in nb-qemu */
+    if(!_nb_qemu_)
     if (!(mode & 0111)) {   /* Must have at least one execute bit set */
         return -EACCES;
     }

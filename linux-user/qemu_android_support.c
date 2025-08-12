@@ -23,15 +23,18 @@
 
 #include "qemu/osdep.h"
 #include "qemu.h"
+#include "user/nb-qemu.h"
 #include "user-internals.h"
 
 static int pfd[2];
 static pthread_t thr;
-static const char *tag = "qemu";
-/* prio: debug-3, warn-5, error-6 */
-static int (*__a_log_write)(int prio, const char *tag, const char *msg);
+static const char *tag = "qemu-" TARGET_NAME;
+/* prio: verbose-2, debug-3, info-4, warn-5, error-6, fatal-7 */
 static int log_prio = 6;
+static int (*__a_log_write)(int prio, const char *tag, const char *msg);
+int (* __a_log_print)(int prio, const char *tag, const char *fmt, ...);
 void *log_handle = NULL;
+void *libnb_qemu_handle = NULL;
 
 static void thread_func_cleanup(void *arg)
 {
@@ -61,12 +64,18 @@ int start_logger(const char *name) {
   if (log_handle == NULL) {
     log_handle = dlopen("liblog.so", RTLD_LAZY);
     if (log_handle == NULL) {
-      fprintf(stderr, "nb-qemu: dlopen liblog.so failed\n");
+      fprintf(stderr, "QemuAndroid: dlopen liblog.so failed\n");
       return -1;
     }
     __a_log_write = dlsym(log_handle, "__android_log_write");
     if (__a_log_write == NULL) {
-      fprintf(stderr, "nb-qemu: dlsym __android_log_write failed\n");
+      fprintf(stderr, "QemuAndroid: dlsym __android_log_write failed\n");
+      dlclose(log_handle);
+      return -1;
+    }
+    __a_log_print = dlsym(log_handle, "__android_log_print");
+    if (__a_log_write == NULL) {
+      fprintf(stderr, "QemuAndroid: dlsym __android_log_print failed\n");
       dlclose(log_handle);
       return -1;
     }
@@ -92,4 +101,49 @@ int start_logger(const char *name) {
   }
   pthread_detach(thr);
   return 0;
+}
+
+int qemu_android_get_nb_fcn() {
+    /* get call host static interface for binfmt_misc support */
+  /* get libnb-qemu interface fcn */
+  if (libnb_qemu_handle == NULL) {
+    libnb_qemu_handle = dlopen("libnb-qemu.so", RTLD_LAZY);
+    if (libnb_qemu_handle == NULL) {
+      fprintf(stderr, "QemuAndroid: dlopen libnb-qemu.so failed\n");
+      return -1;
+    }
+    /* NOTE: the call host static support for binfmt_misc is limited now.
+     * it is because we did not not run nb-qemu-guest,
+     * so it does not support host call guest or call_host_generic.
+     * supported only in _nb_qemu_ mode 
+     * 
+     * if the os bridge want to call guest, we may need to reconsturct
+     */
+    if (_nb_qemu_) {
+      //nb-qemu mode get call host generic
+    }
+    
+    // get call host static
+    if (/*get callhost static success*/) {
+      return 0;
+    } else {
+      return -1;
+    }
+
+
+    /* TODO */
+    // __a_log_write = dlsym(libnb_qemu_handle, "__android_log_write");
+    // if (__a_log_write == NULL) {
+    //   fprintf(stderr, "QemuAndroid: dlsym __android_log_write failed\n");
+    //   dlclose(libnb_qemu_handle);
+    //   return -1;
+    // }
+    // __a_log_print = dlsym(libnb_qemu_handle, "__android_log_print");
+    // if (__a_log_write == NULL) {
+    //   fprintf(stderr, "QemuAndroid: dlsym __android_log_print failed\n");
+    //   dlclose(libnb_qemu_handle);
+    //   return -1;
+    // }
+  }
+
 }

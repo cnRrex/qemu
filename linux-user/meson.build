@@ -20,7 +20,8 @@ linux_user_ss.add(files(
   'thunk.c',
   'uaccess.c',
   'uname.c',
-  'log_redirector.c',
+  'qemu_android_support.c',
+  'qemu_android.c',
 ))
 linux_user_ss.add(rt)
 linux_user_ss.add(libdw)

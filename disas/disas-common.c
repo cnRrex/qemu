@@ -13,6 +13,7 @@
 
 /* Filled in by elfload.c.  Simplistic, but will do for now. */
 struct syminfo *syminfos = NULL;
+struct syminfo *dynsyminfos = NULL;
 
 /*
  * Print an error message.  We can assume that this is in response to

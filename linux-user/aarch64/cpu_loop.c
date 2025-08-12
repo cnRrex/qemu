@@ -26,6 +26,7 @@
 #include "semihosting/common-semi.h"
 #include "target/arm/syndrome.h"
 #include "target/arm/cpu-features.h"
+#include "user/nb-qemu.h"
 
 #define get_user_code_u32(x, gaddr, env)                \
     ({ abi_long __r = get_user_u32((x), (gaddr));       \
@@ -81,6 +82,7 @@ void cpu_loop(CPUARMState *env)
     CPUState *cs = env_cpu(env);
     int trapnr, ec, fsc, si_code, si_signo;
     abi_long ret;
+    bool nb_need_stop = false;
 
     for (;;) {
         cpu_exec_start(cs);
@@ -92,6 +94,53 @@ void cpu_loop(CPUARMState *env)
         case EXCP_SWI:
             /* On syscall, PSTATE.ZA is preserved, PSTATE.SM is cleared. */
             aarch64_set_svcr(env, 0, R_SVCR_SM_MASK);
+            //TODO: should we hook before the aarch64_set_svcr?
+
+            // /* FIXME: Linux ignores the immediate, so an adversarial program could use a non-zero value */
+            // /* We need a judgement to ensure the environment is from guest thunk lib */
+            // if( (env->exception.syndrome & 0xffff)!=0 && svc_handler ){
+            //     svc_handler(env, env->exception.syndrome & 0xffff);
+            //     break;
+            // }
+
+            /* new method, let's check which kind of interrupt we meet */
+            if (_nb_qemu_){
+                // is it a qemu_call pc stop?
+                if (env->pc - 4 == nb_stop) {//TODO: the address may need to convert
+                    //we cant return at here, as the next time we have to re cpu_loop again.
+                    nb_need_stop = true;
+                    break;
+                }
+                // is it a guest call host generic call addr?
+                else if (env->pc - 4 == nb_call_host) {//TODO: the address may need to convert
+                    // call qemu_android_call_host_handler
+                    // if error happen in handler, exit directly.
+                    qemu_android_call_host_handler(env);
+                    break;
+                }
+            }
+            // Now the call_host_static could work with binfmt_misc mode
+
+            // is it a static call host tramp interrupt?
+            unsigned int insn; //TODO: this may need to put outside
+            get_user_code_u32(insn, env->pc, env); /* FIXME - what to do if get_user() fails? *///TODO: the address may need to convert
+            fprintf(stderr, "cpu_loop get_user_code_u32: 0x%x, remove this log once we tested\n", insn);
+            if (insn == 0x14000000) { // asm: "b ." is an Infinite loop
+                // check and extract the number after this, send it to the handler
+                uint16_t lib_num, sym_num;
+                get_user_u16(lib_num, env->pc + 4);//TODO: the address may need to convert
+                get_user_u16(sym_num, env->pc + 6);//TODO: the address may need to convert
+                //TODO: call handler
+                // if handle successful, skip the insn to return,
+                // else just exit anyway, should make some assertion in handler.
+                // but if the number is not accepted , run it any way
+                if (!qemu_android_call_host_static(env, lib_num, sym_num))
+                    env->pc += 8;//skip b. and  number
+                //do something
+                break;
+            }
+            // After 4 if and a get_user_code_u32, do syscall as usual
+
             ret = do_syscall(env,
                              env->xregs[8],
                              env->xregs[0],
@@ -182,6 +231,11 @@ void cpu_loop(CPUARMState *env)
          * so any return to running guest code implies this.
          */
         env->exclusive_addr = -1;
+        /* in nb-qemu mode, stop and handle by qemu_android call */
+        // if (_nb_qemu_ && (trapnr==EXCP_YIELD)){
+        //     return;
+        // }
+        if (nb_need_stop) return;
     }
 }
 

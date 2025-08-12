@@ -25,6 +25,7 @@
 #include "arm_ldst.h"
 #include "semihosting/semihost.h"
 #include "cpregs.h"
+#include "user/nb-qemu.h"
 
 static TCGv_i64 cpu_X[32];
 static TCGv_i64 cpu_pc;
@@ -1726,7 +1727,8 @@ static bool trans_YIELD(DisasContext *s, arg_YIELD *a)
      * If we wanted to more completely model WFE/SEV so we don't busy
      * spin unnecessarily we would need to do something more involved.
      */
-    if (!(tb_cflags(s->base.tb) & CF_PARALLEL)) {
+    /* yield is necessary for nb-qemu */
+    if (!(tb_cflags(s->base.tb) & CF_PARALLEL) || _nb_qemu_) {
         s->base.is_jmp = DISAS_YIELD;
     }
     return true;
@@ -12051,6 +12053,9 @@ static void aarch64_tr_init_disas_context(DisasContextBase *dcbase,
         bound = 1;
     }
     dc->base.max_insns = MIN(dc->base.max_insns, bound);
+
+    /* pass pc_stop to disas */
+    dc->pc_stop = env->pc_stop;
 }
 
 static void aarch64_tr_tb_start(DisasContextBase *db, CPUState *cpu)
@@ -12075,6 +12080,14 @@ static void aarch64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     CPUARMState *env = cpu_env(cpu);
     uint64_t pc = s->base.pc_next;
     uint32_t insn;
+
+    /* call trans_YIELD when reach pc_stop when in nb-qemu */
+    if (_nb_qemu_){
+        if (s->base.pc_next == s->pc_stop ) {
+            trans_YIELD(s, NULL);
+            return;
+        }
+    }
 
     /* Singlestep exceptions have the highest priority. */
     if (s->ss_active && !s->pstate_ss) {
